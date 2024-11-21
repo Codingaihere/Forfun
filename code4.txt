@@ -1,0 +1,111 @@
+def handle_highly_correlated_features(self, threshold=0.9):
+    """
+    Identify and remove highly correlated features within each group.
+    
+    Updates the `selected_features_dict` by retaining features with minimal correlation redundancy.
+    """
+    print("Handling highly correlated features across groups...")
+    
+    def calc_drop(res):
+        """
+        Resolve conflicts among correlated feature pairs to finalize drop candidates.
+        """
+        # Identify all variables involved in high correlations
+        all_corr_vars = list(set(res['v1'].tolist() + res['v2'].tolist()))
+        poss_drop = list(set(res['drop'].tolist()))
+        keep = list(set(all_corr_vars).difference(set(poss_drop)))
+
+        # Drop variables that are redundant with those kept
+        p = res[res['v1'].isin(keep) | res['v2'].isin(keep)][['v1', 'v2']]
+        q = list(set(p['v1'].tolist() + p['v2'].tolist()))
+        drop = list(set(q).difference(set(keep)))
+
+        # Resolve conflicts among possible drop variables
+        poss_drop = list(set(poss_drop).difference(set(drop)))
+        m = res[res['v1'].isin(poss_drop) & res['v2'].isin(poss_drop)][['v1', 'v2', 'drop']]
+        more_drop = set(m[~m['v1'].isin(drop) & ~m['v2'].isin(drop)]['drop'])
+        for item in more_drop:
+            drop.append(item)
+
+        return drop
+    
+    def corrX_new(df, cut=0.9):
+        """
+        Identify correlated features exceeding the threshold and propose candidates for removal.
+        """
+        corr_mtx = df.corr().abs()
+        avg_corr = corr_mtx.mean(axis=1)
+        up = corr_mtx.where(np.triu(np.ones(corr_mtx.shape), k=1).astype(bool))
+
+        res = pd.DataFrame(columns=['v1', 'v2', 'v1.target', 'v2.target', 'corr', 'drop'])
+
+        for row in range(len(up) - 1):
+            col_idx = row + 1
+            for col in range(col_idx, len(up)):
+                if corr_mtx.iloc[row, col] > cut:
+                    if avg_corr.iloc[row] > avg_corr.iloc[col]:
+                        drop = corr_mtx.index[row]
+                    else:
+                        drop = corr_mtx.columns[col]
+                    s = pd.Series([corr_mtx.index[row],
+                                   corr_mtx.columns[col],
+                                   avg_corr.iloc[row],
+                                   avg_corr.iloc[col],
+                                   up.iloc[row, col],
+                                   drop],
+                                  index=res.columns)
+                    res = pd.concat([res, pd.DataFrame([s])], ignore_index=True)
+
+        dropcols_names = calc_drop(res)
+        return dropcols_names, res
+
+    # Apply correlation filtering for each group
+    for group, features in self.selected_features_dict.items():
+        # Exclude the target variable (group itself) during correlation analysis
+        feature_subset = [f for f in features if f != group]
+
+        if feature_subset:
+            subset_df = self.transformed_data[feature_subset]
+            dropcols_names, res = corrX_new(subset_df, threshold)
+
+            # Update the group with retained features
+            self.selected_features_dict[group] = [f for f in feature_subset if f not in dropcols_names]
+            self.selected_features_dict[group].append(group)  # Ensure the target variable remains
+            print(f"Group '{group}' - Features retained: {self.selected_features_dict[group]}")
+        else:
+            print(f"Group '{group}' has no features for correlation analysis.")
+
+    print("Handling highly correlated features completed.")
+
+
+
+
+
+
+def run_pipeline(self, columns, exclude_list, groups, signif=0.05, max_diff_order=2, max_lag=12):
+    """
+    Run the complete feature engineering pipeline.
+    """
+    self.load_data()
+    self.preprocess_data(columns)
+
+    # Step 1: Apply Box-Cox transformation to positive-valued columns
+    positive_columns = [col for col in columns if (self.data[col] > 0).all()]
+    self.boxcox_transform(positive_columns)
+
+    # Step 2: Ensure stationarity through differencing
+    self.make_stationary(positive_columns, signif, max_diff_order)
+
+    # Step 3: Perform Granger causality tests
+    causality_results = self.perform_granger_causality(max_lag, signif)
+
+    # Step 4: Select features based on Granger causality results
+    self.select_features(causality_results, exclude_list, groups)
+
+    # Step 5: Remove highly correlated features within each group
+    self.handle_highly_correlated_features(threshold=0.9)
+
+    print("\nPipeline completed. Final selected features for each group:")
+    for group, features in self.selected_features_dict.items():
+        print(f"{group}: {features}")
+
