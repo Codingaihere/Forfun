@@ -1,10 +1,11 @@
 def handle_highly_correlated_features(self, threshold=0.9):
     """
     Identify and remove highly correlated features within each group.
+    
     Updates the `selected_features_dict` by retaining features with minimal correlation redundancy.
     """
     print("Handling highly correlated features across groups...")
-
+    
     def calc_drop(res):
         """
         Resolve conflicts among correlated feature pairs to finalize drop candidates.
@@ -27,7 +28,7 @@ def handle_highly_correlated_features(self, threshold=0.9):
             drop.append(item)
 
         return drop
-
+    
     def corrX_new(df, cut=0.9):
         """
         Identify correlated features exceeding the threshold and propose candidates for removal.
@@ -68,11 +69,43 @@ def handle_highly_correlated_features(self, threshold=0.9):
             dropcols_names, res = corrX_new(subset_df, threshold)
 
             # Update the group with retained features
-            retained_features = [f for f in feature_subset if f not in dropcols_names]
-            retained_features.append(group)  # Ensure the target variable remains
-            self.selected_features_dict[group] = retained_features
+            self.selected_features_dict[group] = [f for f in feature_subset if f not in dropcols_names]
+            self.selected_features_dict[group].append(group)  # Ensure the target variable remains
             print(f"Group '{group}' - Features retained: {self.selected_features_dict[group]}")
         else:
             print(f"Group '{group}' has no features for correlation analysis.")
 
     print("Handling highly correlated features completed.")
+
+
+
+
+
+
+def run_pipeline(self, columns, exclude_list, groups, signif=0.05, max_diff_order=2, max_lag=12):
+    """
+    Run the complete feature engineering pipeline.
+    """
+    self.load_data()
+    self.preprocess_data(columns)
+
+    # Step 1: Apply Box-Cox transformation to positive-valued columns
+    positive_columns = [col for col in columns if (self.data[col] > 0).all()]
+    self.boxcox_transform(positive_columns)
+
+    # Step 2: Ensure stationarity through differencing
+    self.make_stationary(positive_columns, signif, max_diff_order)
+
+    # Step 3: Perform Granger causality tests
+    causality_results = self.perform_granger_causality(max_lag, signif)
+
+    # Step 4: Select features based on Granger causality results
+    self.select_features(causality_results, exclude_list, groups)
+
+    # Step 5: Remove highly correlated features within each group
+    self.handle_highly_correlated_features(threshold=0.9)
+
+    print("\nPipeline completed. Final selected features for each group:")
+    for group, features in self.selected_features_dict.items():
+        print(f"{group}: {features}")
+
