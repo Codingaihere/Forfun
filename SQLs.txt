@@ -1,0 +1,92 @@
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.year_end_membership_Laksh` AS
+WITH year_list AS (
+  SELECT year FROM UNNEST([2019,2020,2021,2022,2023,2024]) AS year
+)
+SELECT
+  yd.year AS year,
+  m.member_id,
+  m.contract_number,
+  m.pbp
+FROM year_list yd
+JOIN `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW` m
+  ON m.eff_date <= DATE(yd.year, 12, 31)
+ AND m.term_date >= DATE(yd.year, 12, 31);
+
+
+-------------------------------------------------------------------------
+
+
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.member_transitions_Laksh` AS
+WITH prev_year AS (
+  SELECT year AS prev_year, member_id, contract_number AS prev_contract_number, pbp AS prev_pbp
+  FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.year_end_membership_Laksh`
+),
+curr_year AS (
+  SELECT year AS curr_year, member_id, contract_number AS curr_contract_number, pbp AS curr_pbp
+  FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.year_end_membership_Laksh`
+),
+-- Current status: identifies NEW, PERSISTENT, and CHURN (due to plan change but still enrolled)
+current_status AS (
+  SELECT
+    c.curr_year,
+    c.member_id,
+    CASE
+      WHEN p.prev_year IS NULL THEN 'NEW'
+      WHEN p.prev_contract_number = c.curr_contract_number AND p.prev_pbp = c.curr_pbp THEN 'PERSISTENT'
+      ELSE 'CHURN'
+    END AS status
+  FROM curr_year c
+  LEFT JOIN prev_year p
+    ON c.member_id = p.member_id
+   AND p.prev_year = c.curr_year - 1
+),
+-- Churn by disappearance: members present last year but not this year at all
+churn_by_disappearance AS (
+  SELECT
+    p.prev_year + 1 AS curr_year,
+    p.member_id,
+    'CHURN' AS status
+  FROM prev_year p
+  LEFT JOIN curr_year c
+    ON p.member_id = c.member_id
+   AND c.curr_year = p.prev_year + 1
+  WHERE p.prev_year BETWEEN 2019 AND 2023
+    AND c.member_id IS NULL
+)
+SELECT * FROM current_status
+UNION ALL
+SELECT * FROM churn_by_disappearance;
+
+
+-------------------------------------------------------------------------
+
+
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.national_proportions_Laksh` AS
+SELECT
+  curr_year,
+  COUNTIF(status = 'NEW') AS new_count,
+  COUNTIF(status = 'PERSISTENT') AS persistent_count,
+  COUNTIF(status = 'CHURN') AS churn_count,
+  COUNT(*) AS total_members
+FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.member_transitions_Laksh`
+GROUP BY curr_year
+ORDER BY curr_year;
+
+
+-------------------------------------------------------------------------
+
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.national_proportions_final_Laksh` AS
+SELECT
+  curr_year,
+  new_count,
+  persistent_count,
+  churn_count,
+  total_members,
+  SAFE_DIVIDE(new_count, total_members)*100 AS new_pct,
+  SAFE_DIVIDE(persistent_count, total_members)*100 AS persistent_pct,
+  SAFE_DIVIDE(churn_count, total_members)*100 AS churn_pct
+FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.national_proportions_Laksh`;
+
+
+
+-------------------------------------------------------------------------
