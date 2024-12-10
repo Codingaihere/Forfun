@@ -110,6 +110,30 @@ SELECT
 FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW_summary_county_Laksh`;
 
 
+---------------------------------------------------------------
+
+
+
+from google.cloud import bigquery
+
+client = bigquery.Client()
+
+query = """
+SELECT
+  cms_state,
+  cms_county,
+  year,
+  new_percentage,
+  persistent_percentage,
+  churn_percentage
+FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW_summary_county_perc_Laksh`
+ORDER BY cms_state, cms_county, year
+"""
+
+df_results = client.query(query).to_dataframe()
+print(df_results.head())
+
+
 
 
 -------------------------------------------------------------
