@@ -1,0 +1,116 @@
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.year_end_membership_state_county_Laksh` AS
+WITH year_list AS (
+  SELECT year FROM UNNEST([2019,2020,2021,2022,2023,2024]) AS year
+)
+SELECT
+  yd.year AS year,
+  m.member_id,
+  m.contract_number,
+  m.pbp,
+  m.cms_state,
+  m.cms_county
+FROM year_list yd
+JOIN `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW` m
+  ON m.eff_date <= DATE(yd.year, 12, 31)
+ AND m.term_date >= DATE(yd.year, 12, 31);
+
+
+-------------------------------------------------------------
+
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.member_transitions_state_county_Laksh` AS
+WITH prev_year AS (
+  SELECT 
+    year AS prev_year, 
+    member_id, 
+    contract_number AS prev_contract_number, 
+    pbp AS prev_pbp,
+    cms_state AS prev_cms_state,
+    cms_county AS prev_cms_county
+  FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.year_end_membership_state_county_Laksh`
+),
+curr_year AS (
+  SELECT 
+    year AS curr_year, 
+    member_id, 
+    contract_number AS curr_contract_number, 
+    pbp AS curr_pbp,
+    cms_state,
+    cms_county
+  FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.year_end_membership_state_county_Laksh`
+),
+
+-- Current status: For members who exist in the current year
+current_status AS (
+  SELECT
+    c.curr_year,
+    c.member_id,
+    c.cms_state,
+    c.cms_county,
+    CASE
+      WHEN p.prev_year IS NULL THEN 'NEW'
+      WHEN p.prev_contract_number = c.curr_contract_number 
+           AND p.prev_pbp = c.curr_pbp THEN 'PERSISTENT'
+      ELSE 'CHURN'
+    END AS status
+  FROM curr_year c
+  LEFT JOIN prev_year p
+    ON c.member_id = p.member_id
+   AND p.prev_year = c.curr_year - 1
+),
+
+-- Churn by disappearance: For members who were present last year but not this year.
+-- Now we retain their previous year's state and county.
+churn_by_disappearance AS (
+  SELECT
+    p.prev_year + 1 AS curr_year,
+    p.member_id,
+    p.prev_cms_state AS cms_state,
+    p.prev_cms_county AS cms_county,
+    'CHURN' AS status
+  FROM prev_year p
+  LEFT JOIN curr_year c
+    ON p.member_id = c.member_id
+   AND c.curr_year = p.prev_year + 1
+  WHERE p.prev_year BETWEEN 2019 AND 2023
+    AND c.member_id IS NULL
+)
+
+SELECT * FROM current_status
+UNION ALL
+SELECT * FROM churn_by_disappearance;
+
+
+-------------------------------------------------------------
+
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.state_county_proportions_Laksh` AS
+SELECT
+  curr_year,
+  cms_state,
+  cms_county,
+  COUNTIF(status = 'NEW') AS new_count,
+  COUNTIF(status = 'PERSISTENT') AS persistent_count,
+  COUNTIF(status = 'CHURN') AS churn_count,
+  COUNT(*) AS total_members
+FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.member_transitions_state_county_Laksh`
+GROUP BY curr_year, cms_state, cms_county
+ORDER BY curr_year, cms_state, cms_county;
+
+
+-------------------------------------------------------------
+
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.state_county_proportions_final_Laksh` AS
+SELECT
+  curr_year,
+  cms_state,
+  cms_county,
+  new_count,
+  persistent_count,
+  churn_count,
+  total_members,
+  SAFE_DIVIDE(new_count, total_members)*100 AS new_pct,
+  SAFE_DIVIDE(persistent_count, total_members)*100 AS persistent_pct,
+  SAFE_DIVIDE(churn_count, total_members)*100 AS churn_pct
+FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.state_county_proportions_Laksh`;
+
+
+-------------------------------------------------------------
