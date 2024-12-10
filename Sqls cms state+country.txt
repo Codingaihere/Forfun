@@ -21,6 +21,8 @@ member_years AS (
   ) y
   WHERE m.eff_date <= y.year_end
     AND m.term_date >= y.year_start
+    AND m.pbp IS NOT NULL
+    AND m.cms_county IS NOT NULL
 )
 SELECT 
   member_id,
@@ -37,6 +39,7 @@ GROUP BY
   pbp,
   cms_state,
   cms_county;
+
 
 
 
@@ -64,12 +67,11 @@ SELECT
   c.contract_number,
   c.pbp,
   CASE
-    WHEN p.member_id IS NULL THEN 'New' 
-      -- no record in previous year
-    WHEN n.member_id IS NOT NULL AND n.next_contract_number = c.contract_number AND n.next_pbp = c.pbp THEN 'Persistent'
-      -- same contract_number+pbp next year
+    WHEN p.member_id IS NULL THEN 'New'
+    WHEN n.member_id IS NOT NULL 
+         AND n.next_contract_number = c.contract_number 
+         AND n.next_pbp = c.pbp THEN 'Persistent'
     ELSE 'Churn'
-      -- either no next year record or different contract_number+pbp next year
   END AS status
 FROM curr c
 LEFT JOIN prev p ON c.member_id = p.member_id AND c.year = p.prev_year + 1
@@ -78,7 +80,7 @@ LEFT JOIN nxt n ON c.member_id = n.member_id AND c.year = n.next_year - 1;
 
 -------------------------------------------------------------
 
-
+-- Count totals
 CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW_summary_county_Laksh` AS
 SELECT
   cms_state,
@@ -92,8 +94,11 @@ FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW_classified_La
 GROUP BY cms_state, cms_county, year;
 
 
+
+
 -------------------------------------------------------------
 
+-- Compute percentages
 CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW_summary_county_perc_Laksh` AS
 SELECT
   cms_state,
@@ -103,6 +108,7 @@ SELECT
   SAFE_DIVIDE(persistent_count, total_count)*100 AS persistent_percentage,
   SAFE_DIVIDE(churn_count, total_count)*100 AS churn_percentage
 FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW_summary_county_Laksh`;
+
 
 
 
