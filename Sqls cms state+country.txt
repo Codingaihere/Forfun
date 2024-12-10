@@ -1,4 +1,3 @@
-
 CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW_yearly_Laksh` AS
 WITH years AS (
   SELECT year
@@ -7,23 +6,38 @@ WITH years AS (
 member_years AS (
   SELECT
     m.member_id,
-    EXTRACT(YEAR FROM y.date) AS year,
+    EXTRACT(YEAR FROM y.year_start) AS year,
     m.contract_number,
     m.pbp,
     m.cms_state,
     m.cms_county
   FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW` m
   CROSS JOIN (
-     -- Generate all days between 2019-01-01 and 2024-12-31
-     -- This is one approach, but to optimize, we can use a CTE with just years.
-     -- Instead of CROSS JOINing with days, let's reason in terms of years only:
-     SELECT DATE(CONCAT(year, '-01-01')) AS year_start, DATE(CONCAT(year, '-12-31')) AS year_end, year
-     FROM years
+    SELECT 
+      DATE(CONCAT(year, '-01-01')) AS year_start,
+      DATE(CONCAT(year, '-12-31')) AS year_end, 
+      year
+    FROM years
   ) y
   WHERE m.eff_date <= y.year_end
     AND m.term_date >= y.year_start
 )
-GROUP BY member_id, year, contract_number, pbp, cms_state, cms_county;
+SELECT 
+  member_id,
+  year,
+  contract_number,
+  pbp,
+  cms_state,
+  cms_county
+FROM member_years
+GROUP BY 
+  member_id,
+  year,
+  contract_number,
+  pbp,
+  cms_state,
+  cms_county;
+
 
 
 
