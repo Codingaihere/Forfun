@@ -1,0 +1,29 @@
+import matplotlib.pyplot as plt
+
+# Assuming df_results is your DataFrame with columns:
+# curr_year, active_pct, persistent_pct, transition_pct, churn_pct
+
+# Sort by curr_year to ensure chronological order
+df_results = df_results.sort_values('curr_year')
+
+plt.figure(figsize=(10, 6))
+
+# Plot each category as a line
+plt.plot(df_results['curr_year'], df_results['active_pct'], marker='o', label='ACTIVE')
+plt.plot(df_results['curr_year'], df_results['persistent_pct'], marker='o', label='PERSISTENT')
+plt.plot(df_results['curr_year'], df_results['transition_pct'], marker='o', label='TRANSITION_TO_ANOTHER_PLAN')
+plt.plot(df_results['curr_year'], df_results['churn_pct'], marker='o', label='CHURN_COMPLETELY')
+
+# Add axis labels and title
+plt.xlabel('Year')
+plt.ylabel('Percentage')
+plt.title('Year-over-Year Distribution of Membership Categories')
+
+# Add legend
+plt.legend()
+
+# Add grid for better readability
+plt.grid(True)
+
+# Display the plot
+plt.show()
