@@ -1,0 +1,136 @@
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.year_end_membership_Laksh` AS
+WITH year_list AS (
+  SELECT year FROM UNNEST([2019,2020,2021,2022,2023,2024]) AS year
+)
+SELECT
+  yd.year AS year,
+  m.member_id,
+  m.contract_number,
+  m.pbp
+FROM year_list yd
+JOIN `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW` m
+  ON m.eff_date <= DATE(yd.year, 12, 31)
+ AND m.term_date >= DATE(yd.year, 12, 31);
+
+
+
+-------------------------------------------------------------------------------
+
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.member_transitions_Laksh` AS
+WITH prev_year AS (
+  SELECT year AS prev_year, member_id, contract_number AS prev_contract_number, pbp AS prev_pbp
+  FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.year_end_membership_Laksh`
+),
+curr_year AS (
+  SELECT year AS curr_year, member_id, contract_number AS curr_contract_number, pbp AS curr_pbp
+  FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.year_end_membership_Laksh`
+),
+-- Classify members who appear in the current year
+current_status AS (
+  SELECT
+    c.curr_year,
+    c.member_id,
+    CASE
+      WHEN p.prev_year IS NULL THEN 'ACTIVE' -- In current year but not in previous year
+      WHEN p.prev_contract_number = c.curr_contract_number AND p.prev_pbp = c.curr_pbp THEN 'PERSISTENT'
+      ELSE 'TRANSITION_TO_ANOTHER_PLAN' 
+         -- Present both years, but plan changed
+    END AS status
+  FROM curr_year c
+  LEFT JOIN prev_year p
+    ON c.member_id = p.member_id
+   AND p.prev_year = c.curr_year - 1
+),
+-- Identify members who churned completely (were in prev_year but not in curr_year)
+churn_by_disappearance AS (
+  SELECT
+    p.prev_year + 1 AS curr_year,
+    p.member_id,
+    'CHURN_COMPLETELY' AS status
+  FROM prev_year p
+  LEFT JOIN curr_year c
+    ON p.member_id = c.member_id
+   AND c.curr_year = p.prev_year + 1
+  WHERE p.prev_year BETWEEN 2019 AND 2023
+    AND c.member_id IS NULL
+)
+SELECT * FROM current_status
+UNION ALL
+SELECT * FROM churn_by_disappearance;
+
+
+-------------------------------------------------------------------------------
+
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.national_proportions_Laksh` AS
+SELECT
+  curr_year,
+  COUNTIF(status = 'ACTIVE') AS active_count,
+  COUNTIF(status = 'PERSISTENT') AS persistent_count,
+  COUNTIF(status = 'TRANSITION_TO_ANOTHER_PLAN') AS transition_count,
+  COUNTIF(status = 'CHURN_COMPLETELY') AS churn_count,
+  COUNT(*) AS total_members
+FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.member_transitions_Laksh`
+GROUP BY curr_year
+ORDER BY curr_year;
+
+
+-------------------------------------------------------------------------------
+
+
+CREATE OR REPLACE TABLE `anbc-hcb-dev.pricing_arme_off_hcb_dev.national_proportions_final_Laksh` AS
+SELECT
+  curr_year,
+  active_count,
+  persistent_count,
+  transition_count,
+  churn_count,
+  total_members,
+  SAFE_DIVIDE(active_count, total_members)*100 AS active_pct,
+  SAFE_DIVIDE(persistent_count, total_members)*100 AS persistent_pct,
+  SAFE_DIVIDE(transition_count, total_members)*100 AS transition_pct,
+  SAFE_DIVIDE(churn_count, total_members)*100 AS churn_pct
+FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.national_proportions_Laksh`;
+
+
+-------------------------------------------------------------------------------
+
+
+Step 1: Year-End Snapshot Table
+This step remains the same. We need a year-end snapshot of who is enrolled on December 31 of each year (2019 through 2024).
+
+
+
+### Thought about task category redefinition for 12 seconds
+Below is the revised approach incorporating the newly defined four categories for year-over-year transitions. We will redefine the categories as follows:
+
+New Categories:
+
+ACTIVE: Members who appear in the current year but were not present in the previous year. (Previously labeled "NEW")
+PERSISTENT: Members who appear in both the previous year and the current year with the exact same contract_number + pbp.
+TRANSITION TO ANOTHER PLAN: Members who appear in both the previous year and the current year, but with a different contract_number + pbp. (Previously these were lumped under "CHURN" due to plan changes, but now they have their own category.)
+CHURN COMPLETELY: Members who appeared in the previous year but do not appear at all in the current year.
+We will follow the same steps as before, but adjust the logic and the CASE statements to reflect these four categories.
+
+Step 1: Year-End Snapshot Table
+This step remains the same. We need a year-end snapshot of who is enrolled on December 31 of each year (2019 through 2024).
+
+Explanation:
+This table provides a "who is enrolled at the end of each year" snapshot. Each row represents a member’s contract+pbp at December 31 of a given year.
+
+Step 2: Identify Transitions with the New Categories
+We now create a transitions table that compares each year with the previous year and assigns one of the four categories.
+
+Logic to determine categories for curr_year transition from prev_year:
+
+If member is present in curr_year but not in prev_year => ACTIVE
+If member is in both years and contract_number+pbp match => PERSISTENT
+If member is in both years but contract_number+pbp differ => TRANSITION TO ANOTHER PLAN
+If member was in prev_year but not in curr_year => CHURN COMPLETELY
+
+Step 3: Aggregate to National Level
+Just as before, we will now aggregate these statuses at the national level to see the counts (and eventually percentages) of each category by year.
+
+Step 4: Compute Percentages
+Just like before, we can add a step to compute the percentages:
+
+-------------------------------------------------------------------------------
