@@ -50,7 +50,13 @@ WITH curr AS (
   FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW_yearly_Laksh`
 ),
 prev AS (
-  SELECT member_id, year AS prev_year, contract_number AS prev_contract_number, pbp AS prev_pbp
+  SELECT 
+    member_id, 
+    year AS prev_year, 
+    contract_number AS prev_contract_number, 
+    pbp AS prev_pbp,
+    cms_state AS prev_cms_state,
+    cms_county AS prev_cms_county
   FROM `anbc-hcb-dev.pricing_arme_off_hcb_dev.MEPR_MASTER_DETAIL_NEW_yearly_Laksh`
 ),
 -- Identify members who disappeared: present in prev_year but not in current year
@@ -58,10 +64,10 @@ churn_by_disappearance AS (
   SELECT
     p.member_id,
     p.prev_year + 1 AS year,
-    NULL AS contract_number,
-    NULL AS pbp,
-    NULL AS cms_state,
-    NULL AS cms_county,
+    p.prev_cms_state AS cms_state,
+    p.prev_cms_county AS cms_county,
+    p.prev_contract_number AS contract_number,
+    p.prev_pbp AS pbp,
     'CHURN_COMPLETELY' AS status
   FROM prev p
   LEFT JOIN curr c
@@ -99,6 +105,7 @@ SELECT
   pbp,
   status
 FROM churn_by_disappearance;
+
 
 
 -------------------------------------------------------------
