@@ -1,0 +1,107 @@
+from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import numpy as np
+import shap
+
+pdf_name = "Double_page.pdf"
+with PdfPages(pdf_name) as pdf:
+    for contract_pbp in contract_pbps:
+
+        # ─── PAGE 1: WATERFALL ONLY ──────────────────────────────────────
+        fig1, ax1 = plt.subplots(figsize=(12, 6))
+        explainer = shap.TreeExplainer(all_models['mse_rmcontractpbp'])
+        plan_data  = (
+            data
+            .loc[data['contract_pbp'] == contract_pbp]
+            .reset_index(drop=True)
+        )
+        X  = plan_data[ all_models['mse_rmcontractpbp'].feature_name_ ]
+        sv = explainer(X)
+        mean_sv = np.mean(sv.values, axis=0)
+
+        # draw waterfall into our single axis
+        shap.plots.waterfall(
+            shap.Explanation(
+                values=mean_sv,
+                base_values=sv.base_values[0],
+                data=X.iloc[0],
+                feature_names=sv.feature_names
+            ),
+            max_display=20,
+            show=False,
+            ax=ax1
+        )
+
+        # center title, bump up margins so nothing is clipped
+        ax1.set_title(
+            f"Plan {contract_pbp} — Average Feature Contribution",
+            loc='center',
+            pad=16,
+            fontsize=16
+        )
+        fig1.tight_layout(rect=[0, 0, 1, 0.95])
+        pdf.savefig(fig1)
+        plt.close(fig1)
+
+        # ─── PAGE 2: TOP-5 FORCE PLOTS ───────────────────────────────────
+        fig2 = plt.figure(figsize=(12, 20))
+        gs   = gridspec.GridSpec(
+            nrows=5,
+            ncols=1,
+            height_ratios=[1,1,1,1,1],
+            figure=fig2
+        )
+        # overall heading
+        fig2.suptitle(
+            f"Top 5 Member Predictions under {contract_pbp}",
+            fontsize=18,
+            y=0.98
+        )
+
+        # pick top-5 indices by your pred column
+        top5 = (
+            plan_data
+            .assign(idx=plan_data.index)
+            .sort_values('pred_mse_rmcontractpbp', ascending=False)
+            .head(5)['idx']
+            .tolist()
+        )
+
+        for i, idx in enumerate(top5):
+            ax = fig2.add_subplot(gs[i])
+            member_id = int(plan_data.loc[idx, 'mepr_member_id'])
+
+            # render force_plot into our axis
+            fp = shap.force_plot(
+                explainer.expected_value,
+                sv.values[idx, :],
+                X.iloc[idx, :],
+                matplotlib=True,
+                show=False,
+                text_rotation=15
+            )
+            fp.canvas.draw()
+            w, h = fp.canvas.get_width_height()
+            buf   = np.frombuffer(fp.canvas.tostring_rgb(), dtype=np.uint8)
+            img   = buf.reshape(h, w, 3)
+            plt.close(fp)
+
+            ax.imshow(img)
+            ax.axis('off')
+            ax.set_title(
+                f"Member {member_id} Prediction Explanation",
+                fontsize=12,
+                pad=8
+            )
+
+        # tighten up the force‐plot spacing
+        fig2.subplots_adjust(
+            left=0.15,
+            right=0.95,
+            top=0.92,
+            bottom=0.02,
+            hspace=0.4
+        )
+        pdf.savefig(fig2)
+        plt.close(fig2)
